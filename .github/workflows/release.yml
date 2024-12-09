@@ -1,0 +1,144 @@
+name: release
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  get-version:
+    runs-on: ubuntu-latest
+    outputs:
+      releaseVersion: ${{ steps.exposeVersion.outputs.releaseVersion }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Cache node modules
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: node_modules-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            node_modules-
+      - name: Install Node dependencies
+        run: npm install
+      - name: Get version from package.json
+        id: exposeVersion
+        run: echo "releaseVersion=$(npm run get-version --silent)" >> $GITHUB_OUTPUT
+  prepare-release:
+    needs: get-version
+    runs-on: ubuntu-latest
+    outputs:
+      versionInfo: ${{ steps.readChangelogEntry.outputs.log_entry }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Configure git
+        run: |
+          git config --global user.email "info@orangebeard.io"
+          git config --global user.name "Orangebeard.io"
+      - name: Create tag
+        run: |
+          git tag -a v${{ needs.get-version.outputs.releaseVersion }} -m ${{ needs.get-version.outputs.releaseVersion }}
+          git push origin main --follow-tags
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Cache node modules
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: node_modules-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            node_modules-
+      - name: Install Node dependencies
+        run: npm install
+      - name: Create CHANGELOG.md
+        run: npm run create-changelog
+      - name: Upload changelog as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: changelog
+          path: CHANGELOG.md
+  create-release:
+    needs: [get-version, prepare-release]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Download changelog for artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: changelog
+      - name: Create Release
+        id: createRelease
+        uses: ncipollo/release-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag: v${{ needs.get-version.outputs.releaseVersion }}
+          name: ${{ needs.get-version.outputs.releaseVersion }}
+          bodyFile: CHANGELOG.md
+  publish-release:
+    needs: [get-version, prepare-release, create-release]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+      - name: Cache node modules
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: node_modules-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            node_modules-
+      - name: Transpile to JS
+        run: npm run build
+      - name: Install Node dependencies
+        run: npm install
+      - name: Publish to NPM
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+  update-version:
+    needs: [get-version, prepare-release, create-release, publish-release]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Configure git
+        run: |
+          git config --global user.email "info@orangebeard.io"
+          git config --global user.name "Orangebeard.io"
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Cache node modules
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: node_modules-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            node_modules-
+      - name: Install Node dependencies
+        run: npm install
+      - name: Update version
+        run: |
+          npm run update-version
+          git add package.json package-lock.json
+          git commit -m "Update version"
+          git push origin main
