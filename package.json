@@ -1,0 +1,48 @@
+{
+  "name": "@orangebeard-io/playwright-orangebeard-reporter",
+  "version": "1.0.2",
+  "description": "A Playwright reporter to report to Orangebeard.io",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "rimraf ./dist && tsc",
+    "lint": "eslint . --ext .ts",
+    "format:js": "npm run lint -- --fix",
+    "format:md": "prettier --write README.md",
+    "format": "npm run format:js && npm run format:md",
+    "test": "jest --unhandled-rejections=none --config ./jest.config.js",
+    "test:coverage": "jest --unhandled-rejections=none --coverage",
+    "get-version": "echo $npm_package_version",
+    "update-version": "release-it --ci --no-git --no-npm.publish",
+    "create-changelog": "auto-changelog --template changelog-template.hbs --starting-version v$npm_package_version"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/orangebeard-io/playwright-listener.git"
+  },
+  "keywords": [
+    "playwright",
+    "orangebeard",
+    "reporter",
+    "testing"
+  ],
+  "author": "Orangebeard.io",
+  "license": "Apache-2.0",
+  "bugs": {
+    "url": "https://github.com/orangebeard-io/playwright-listener/issues"
+  },
+  "homepage": "https://github.com/orangebeard-io/playwright-listener#readme",
+  "devDependencies": {
+    "auto-changelog": "^2.5.0",
+    "@js-joda/core": "^5.6.3",
+    "@orangebeard-io/javascript-client": "^2.0.6",
+    "@playwright/test": "^1.49.0",
+    "@typescript-eslint/parser": "^8.15.0",
+    "eslint": "^9.15.0",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-prettier": "^5.2.1",
+    "prettier": "^3.3.3",
+    "release-it": "^17.10.0",
+    "rimraf": "^6.0.1",
+    "typescript": "^5.6.3"
+  }
+}
