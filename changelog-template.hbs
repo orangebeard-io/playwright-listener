@@ -1,0 +1,29 @@
+{{#each releases}}
+  {{#if summary}}
+    {{summary}}
+  {{/if}}
+
+  {{#if merges}}
+    ### :twisted_rightwards_arrows: Merged
+
+    {{#each merges}}
+      - {{#if commit.breaking}}**Breaking change:** {{/if}}{{message}} {{#if href}}[`#{{id}}`]({{href}}){{/if}}
+    {{/each}}
+  {{/if}}
+
+  {{#if fixes}}
+    ### :bug: Fixed
+
+    {{#each fixes}}
+      - {{#if commit.breaking}}**Breaking change:** {{/if}}{{commit.subject}}{{#each fixes}} {{#if href}}[`#{{id}}`]({{href}}){{/if}}{{/each}}
+    {{/each}}
+  {{/if}}
+
+  {{#commit-list commits heading='### :mag: Commits'}}
+    - {{#if breaking}}**Breaking change:** {{/if}}{{subject}} {{#if href}}[`{{shorthash}}`]({{href}}){{/if}}
+  {{/commit-list}}
+
+  {{#if href}}
+    See full comparison at [{{title}}]({{href}})
+  {{/if}}
+{{/each}}
