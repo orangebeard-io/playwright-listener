@@ -83,7 +83,7 @@ export class OrangebeardReporter implements Reporter {
 
         const stepUUID = this.client.startStep({
             startTime: getTime(),
-            stepName: step.title,
+            stepName: step.title || step.titlePath().toString() || 'Untitled step',
             description: step.location ? `${path.basename(step.location.file)}:${step.location.line}`: undefined,
             testRunUUID: this.testRunId,
             testUUID: testUUID,
