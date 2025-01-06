@@ -3,6 +3,9 @@
   "version": "1.0.3",
   "description": "A Playwright reporter to report to Orangebeard.io",
   "main": "dist/index.js",
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "rimraf ./dist && tsc",
     "lint": "eslint . --ext .ts",
