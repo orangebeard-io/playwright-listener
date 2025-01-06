@@ -1,6 +1,6 @@
 {
   "name": "@orangebeard-io/playwright-orangebeard-reporter",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "A Playwright reporter to report to Orangebeard.io",
   "main": "dist/index.js",
   "files": [
