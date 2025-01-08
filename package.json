@@ -36,8 +36,6 @@
   "homepage": "https://github.com/orangebeard-io/playwright-listener#readme",
   "devDependencies": {
     "auto-changelog": "^2.5.0",
-    "@js-joda/core": "^5.6.3",
-    "@orangebeard-io/javascript-client": "^2.0.6",
     "@playwright/test": "^1.49.0",
     "@typescript-eslint/parser": "^8.15.0",
     "eslint": "^9.15.0",
@@ -47,5 +45,9 @@
     "release-it": "^17.10.0",
     "rimraf": "^6.0.1",
     "typescript": "^5.6.3"
+  },
+  "dependencies": {
+    "@js-joda/core": "^5.6.3",
+    "@orangebeard-io/javascript-client": "^2.0.6"
   }
 }
