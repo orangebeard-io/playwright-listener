@@ -105,10 +105,10 @@ jobs:
           key: node_modules-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
           restore-keys: |
             node_modules-
-      - name: Transpile to JS
-        run: npm run build
       - name: Install Node dependencies
         run: npm install
+      - name: Transpile to JS
+        run: npm run build
       - name: Publish to NPM
         run: npm publish --provenance --access public
         env:
