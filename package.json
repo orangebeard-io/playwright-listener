@@ -36,6 +36,7 @@
   "homepage": "https://github.com/orangebeard-io/playwright-listener#readme",
   "devDependencies": {
     "@playwright/test": "^1.49.0",
+    "@types/node": "^22.10.9",
     "@typescript-eslint/parser": "^8.15.0",
     "auto-changelog": "^2.5.0",
     "eslint": "^9.15.0",
