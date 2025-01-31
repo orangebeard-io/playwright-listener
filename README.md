@@ -45,7 +45,7 @@ Create orangebeard.json (in your test projects's folder (or above))
 ```JSON
 {
   "endpoint": "https://XXX.orangebeard.app",
-  "accessToken": "00000000-0000-0000-0000-00000000",
+  "token": "00000000-0000-0000-0000-00000000",
   "project": "my_project_name",
   "testset": "My Test Set Name",
   "description": "A run from playwright",
