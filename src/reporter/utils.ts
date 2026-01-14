@@ -3,6 +3,8 @@ import {FinishTest} from "@orangebeard-io/javascript-client/dist/client/models/F
 import * as fs from "node:fs";
 import {promisify} from "util";
 import Status = FinishTest.Status;
+import { StartTest } from '@orangebeard-io/javascript-client/dist/client/models/StartTest';
+import TestType = StartTest.TestType;
 
 const stat = promisify(fs.stat);
 const access = promisify(fs.access);
@@ -157,4 +159,36 @@ export const getBytes = async (filePath: string) => {
         throw err;
     }
 };
+
+export function getAttachmentKey(attachment: {
+    name: string,
+    path?: string,
+    body?: Buffer,
+    contentType: string
+}): string {
+    const size = attachment.body ? attachment.body.byteLength : undefined;
+    const pathOrSize = attachment.path ?? size ?? 'no-path-no-size';
+    return `${attachment.name}|${attachment.contentType}|${pathOrSize}`;
+}
+
+export function determineTestType(parentTitlePath: string): TestType {
+    const lower = parentTitlePath.toLowerCase();
+    if (lower.includes('beforeall') || lower.includes('before all')) {
+        return TestType.BEFORE;
+    }
+
+    if (lower.includes('afterall') || lower.includes('after all')) {
+        return TestType.AFTER;
+    }
+
+    if (lower.includes('setup')) {
+        return TestType.BEFORE;
+    }
+
+    if (lower.includes('teardown')) {
+        return TestType.AFTER;
+    }
+
+    return TestType.TEST;
+}
 

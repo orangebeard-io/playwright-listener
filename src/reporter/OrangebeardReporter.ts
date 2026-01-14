@@ -1,14 +1,21 @@
 import {UUID} from 'crypto';
 import {Reporter, TestCase, TestResult, TestStep} from '@playwright/test/reporter'
-import {ansiToMarkdown, getBytes, getCodeSnippet, getTime, removeAnsi, testStatusMap} from './utils'
+import {
+    ansiToMarkdown,
+    determineTestType,
+    getAttachmentKey,
+    getBytes,
+    getCodeSnippet,
+    getTime,
+    removeAnsi,
+    testStatusMap,
+} from './utils';
 import {OrangebeardParameters} from "@orangebeard-io/javascript-client/dist/client/models/OrangebeardParameters";
 import OrangebeardAsyncV3Client from "@orangebeard-io/javascript-client/dist/client/OrangebeardAsyncV3Client";
-import {StartTest} from "@orangebeard-io/javascript-client/dist/client/models/StartTest";
 import {Attachment} from "@orangebeard-io/javascript-client/dist/client/models/Attachment";
 import {Log} from "@orangebeard-io/javascript-client/dist/client/models/Log";
 import {Attribute} from "@orangebeard-io/javascript-client/dist/client/models/Attribute";
 import {FinishStep} from "@orangebeard-io/javascript-client/dist/client/models/FinishStep";
-import TestType = StartTest.TestType;
 import LogFormat = Log.LogFormat;
 import LogLevel = Log.LogLevel;
 import Status = FinishStep.Status;
@@ -25,6 +32,7 @@ export class OrangebeardReporter implements Reporter {
     tests: Map<string, UUID> = new Map<string, UUID>(); //testId, uuid
     steps: Map<string, UUID> = new Map<string, UUID>(); //testId_stepPath, uuid
     promises: Promise<void>[] = [];
+    processedStepAttachments: Map<string, Set<string>> = new Map<string, Set<string>>(); // testId -> set of attachment keys already uploaded on step level
 
     constructor() {
         this.client = new OrangebeardAsyncV3Client();
@@ -107,6 +115,39 @@ export class OrangebeardReporter implements Reporter {
     onStepEnd(test: TestCase, _result: TestResult, step: TestStep): void {
         const testUUID = this.tests.get(test.id);
         const stepUUID = this.steps.get(test.id + "|" + step.titlePath())
+
+        // Handle step-level attachments (similar to test-level attachments in onTestEnd)
+        if (step.attachments && step.attachments.length > 0 && stepUUID) {
+            let message = "";
+            for (const attachment of step.attachments) {
+                message += `- ${attachment.name} (${attachment.contentType})\\n`;
+            }
+
+            const attachmentsLogUUID = this.client.log({
+                logFormat: LogFormat.MARKDOWN,
+                logLevel: LogLevel.INFO,
+                logTime: getTime(),
+                message: message,
+                testRunUUID: this.testRunId,
+                testUUID: testUUID,
+                stepUUID: stepUUID,
+            });
+
+            for (const attachment of step.attachments) {
+                // Track that this attachment has already been uploaded on the step level,
+                // so we can skip it when handling test-level attachments in onTestEnd.
+                const key = getAttachmentKey(attachment);
+                let processedForTest = this.processedStepAttachments.get(test.id);
+                if (!processedForTest) {
+                    processedForTest = new Set<string>();
+                    this.processedStepAttachments.set(test.id, processedForTest);
+                }
+                processedForTest.add(key);
+
+                this.promises.push(this.logAttachment(attachment, testUUID, attachmentsLogUUID));
+            }
+        }
+
         if(step.error) {
             const message = step.error.message;
             this.client.log({
@@ -140,15 +181,62 @@ export class OrangebeardReporter implements Reporter {
         this.steps.delete(test.id + "|" + step.titlePath())
     }
 
-    onTestBegin(test: TestCase): void {
+    onTestBegin(test: TestCase, result: TestResult): void {
         //check suite
         const suiteUUID = this.getOrStartSuite(test.parent.titlePath())
         const attributes: Array<Attribute> = [];
+
+        // Tags -> attributes without key
         for (const tag of test.tags) {
             attributes.push({value: tag})
         }
+
+        // Annotations -> structured attributes
+        for (const annotation of test.annotations) {
+            const description = annotation.description?.trim();
+            switch (annotation.type) {
+                case 'issue':
+                case 'bug':
+                    if (description) {
+                        attributes.push({key: 'Issue', value: description});
+                    }
+                    break;
+                case 'tag':
+                    if (description) {
+                        attributes.push({value: description});
+                    }
+                    break;
+                case 'skip':
+                case 'slow':
+                case 'fixme':
+                case 'fail': {
+                    const value = description && description.length > 0 ? description : annotation.type;
+                    attributes.push({key: 'PlaywrightAnnotation', value: value});
+                    if (annotation.type === 'fail') {
+                        // Mark tests annotated as expected-to-fail
+                        attributes.push({key: 'ExpectedStatus', value: 'failed'});
+                        attributes.push({key: 'ExpectedToFail', value: 'true'});
+                    }
+                    break;
+                }
+                default:
+                    if (description && description.length > 0) {
+                        attributes.push({key: `annotation:${annotation.type}`, value: description});
+                    } else {
+                        attributes.push({value: `annotation:${annotation.type}`});
+                    }
+            }
+        }
+
+        // If this is a retry attempt (retry index > 0), add a Retry attribute
+        if (typeof result?.retry === 'number' && result.retry > 0) {
+            attributes.push({key: 'Retry', value: result.retry.toString()});
+        }
+
+        const testType = determineTestType(test.parent.titlePath().join('>'))
+
         const testUUID = this.client.startTest({
-            testType: TestType.TEST,
+            testType: testType,
             testRunUUID: this.testRunId,
             suiteUUID: suiteUUID,
             testName: test.title,
@@ -161,10 +249,17 @@ export class OrangebeardReporter implements Reporter {
 
     async onTestEnd(test: TestCase, result: TestResult): Promise<void> {
         const testUUID = this.tests.get(test.id);
-        if (result.attachments.length > 0) {
+
+        // Filter out attachments that were already handled at step level to avoid duplicates.
+        const processedForTest = this.processedStepAttachments.get(test.id);
+        const remainingAttachments = processedForTest
+            ? result.attachments.filter((attachment) => !processedForTest!.has(getAttachmentKey(attachment)))
+            : result.attachments;
+
+        if (remainingAttachments.length > 0) {
             let message = "";
-            for (const attachment of result.attachments) {
-                message += `- ${attachment.name} (${attachment.contentType})\n`
+            for (const attachment of remainingAttachments) {
+                message += `- ${attachment.name} (${attachment.contentType})\\n`
             }
             const attachmentsLogUUID = this.client.log({
                 logFormat: LogFormat.MARKDOWN,
@@ -174,13 +269,57 @@ export class OrangebeardReporter implements Reporter {
                 testRunUUID: this.testRunId,
                 testUUID: testUUID
             })
-            for (const attachment of result.attachments) {
+            for (const attachment of remainingAttachments) {
                 this.promises.push(this.logAttachment(attachment, testUUID, attachmentsLogUUID));
+            }
+        }
+
+        // Log test-level errors that are not tied to specific steps (e.g. hooks/fixtures)
+        const errors = (result as any).errors && (result as any).errors.length > 0
+            ? (result as any).errors
+            : (result.error ? [result.error] : []);
+
+        if (errors && errors.length > 0) {
+            let errorMessage = '';
+            for (let index = 0; index < errors.length; index += 1) {
+                const err = errors[index];
+                if (index > 0) {
+                    errorMessage += '\n\n';
+                }
+                if (err.message) {
+                    errorMessage += `**Error:** ${ansiToMarkdown(err.message)}\n`;
+                }
+                if (err.stack) {
+                    errorMessage += `\`\`\`\n${removeAnsi(err.stack)}\n\`\`\``;
+                }
+            }
+
+            if (errorMessage.length > 0) {
+                this.client.log({
+                    logFormat: LogFormat.MARKDOWN,
+                    logLevel: LogLevel.ERROR,
+                    logTime: getTime(),
+                    message: errorMessage,
+                    testRunUUID: this.testRunId,
+                    testUUID: testUUID,
+                });
             }
         }
 
         //determine status
         const status = testStatusMap[result.status]
+
+        // If the test passed after one or more retries, mark it as flaky in the logs
+        if (typeof result.retry === 'number' && result.retry > 0 && status === Status.PASSED) {
+            this.client.log({
+                logFormat: LogFormat.PLAIN_TEXT,
+                logLevel: LogLevel.INFO,
+                logTime: getTime(),
+                message: `Test passed after ${result.retry} retr${result.retry === 1 ? 'y' : 'ies'}`,
+                testRunUUID: this.testRunId,
+                testUUID: testUUID,
+            });
+        }
 
         //finish test
         this.client.finishTest(testUUID, {
@@ -189,6 +328,7 @@ export class OrangebeardReporter implements Reporter {
             endTime: getTime()
         });
         this.tests.delete(test.id);
+        this.processedStepAttachments.delete(test.id);
     }
 
     printsToStdio(): boolean {
@@ -238,28 +378,35 @@ export class OrangebeardReporter implements Reporter {
         body?: Buffer,
         contentType: string
     }, testUUID: UUID, logUUID: UUID) {
-        let content: Buffer;
-        if (attachment.body) {
-            content = attachment.body;
-        } else if (attachment.path) {
-            content = await getBytes(attachment.path);
-        } else {
-            throw new Error("Attachment must have either body or path defined.");
-        }
+        try {
+            let content: Buffer;
+            if (attachment.body) {
+                content = attachment.body;
+            } else if (attachment.path) {
+                content = await getBytes(attachment.path);
+            } else {
+                throw new Error("Attachment must have either body or path defined.");
+            }
 
-        const orangebeardAttachment: Attachment = {
-            file: {
-                name: path.basename(attachment.path),
-                content: content,
-                contentType: attachment.contentType,
-            },
-            metaData: {
-                testRunUUID: this.testRunId,
-                testUUID: testUUID,
-                logUUID: logUUID,
-                attachmentTime: getTime()
-            },
-        };
-        this.client.sendAttachment(orangebeardAttachment);
+            const orangebeardAttachment: Attachment = {
+                file: {
+                    name: path.basename(attachment.path),
+                    content: content,
+                    contentType: attachment.contentType,
+                },
+                metaData: {
+                    testRunUUID: this.testRunId,
+                    testUUID: testUUID,
+                    logUUID: logUUID,
+                    attachmentTime: getTime()
+                },
+            };
+            await this.client.sendAttachment(orangebeardAttachment);
+        } catch (err) {
+            // Avoid failing the entire test run due to a single attachment failure.
+            // Log to stderr so issues are visible during test execution.
+            // eslint-disable-next-line no-console
+            console.error('Error sending attachment to Orangebeard:', err);
+        }
     }
 }
