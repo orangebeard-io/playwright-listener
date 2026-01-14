@@ -13,10 +13,7 @@
     "format:md": "prettier --write README.md",
     "format": "npm run format:js && npm run format:md",
     "test": "jest --unhandled-rejections=none --config ./jest.config.js",
-    "test:coverage": "jest --unhandled-rejections=none --coverage",
-    "get-version": "echo $npm_package_version",
-    "update-version": "release-it --ci --no-git --no-npm.publish",
-    "create-changelog": "auto-changelog --template changelog-template.hbs --starting-version v$npm_package_version"
+    "test:coverage": "jest --unhandled-rejections=none --coverage"
   },
   "repository": {
     "type": "git",
@@ -35,15 +32,13 @@
   },
   "homepage": "https://github.com/orangebeard-io/playwright-listener#readme",
   "devDependencies": {
-    "@playwright/test": "^1.49.0",
+    "@playwright/test": "^1.57.0",
     "@types/node": "^22.10.9",
     "@typescript-eslint/parser": "^8.15.0",
-    "auto-changelog": "^2.5.0",
     "eslint": "^9.15.0",
     "eslint-config-prettier": "^9.1.0",
     "eslint-plugin-prettier": "^5.2.1",
     "prettier": "^3.3.3",
-    "release-it": "^17.10.0",
     "rimraf": "^6.0.1",
     "typescript": "^5.6.3"
   },
