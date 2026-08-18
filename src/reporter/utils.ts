@@ -16,7 +16,7 @@ export function getTime() {
 export const testStatusMap = {
     "passed": Status.PASSED,
     "failed": Status.FAILED,
-    "timedOut": Status.TIMED_OUT,
+    "timedOut": Status.FAILED,
     "skipped": Status.SKIPPED,
     "interrupted": Status.STOPPED
 };
