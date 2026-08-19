@@ -1,6 +1,7 @@
 import {ZonedDateTime} from "@js-joda/core";
 import {FinishTest} from "@orangebeard-io/javascript-client/dist/client/models/FinishTest";
 import * as fs from "node:fs";
+import * as path from "node:path";
 import {promisify} from "util";
 import Status = FinishTest.Status;
 import { StartTest } from '@orangebeard-io/javascript-client/dist/client/models/StartTest';
@@ -159,6 +160,43 @@ export const getBytes = async (filePath: string) => {
         throw err;
     }
 };
+
+const EXTENSION_BY_CONTENT_TYPE: Record<string, string> = {
+    'image/png': '.png',
+    'image/jpeg': '.jpg',
+    'image/gif': '.gif',
+    'image/webp': '.webp',
+    'application/zip': '.zip',
+    'video/webm': '.webm',
+    'video/mp4': '.mp4',
+    'text/plain': '.txt',
+    'application/json': '.json',
+    'application/pdf': '.pdf',
+};
+
+/**
+ * Derives the file name to upload an attachment as. Path-backed attachments
+ * (screenshots/traces/videos written to disk by Playwright) use the basename
+ * of that path. Body-only attachments (e.g. from `testInfo.attach(name, { body })`)
+ * have no path, so `attachment.name` is used instead, adding an extension
+ * inferred from `contentType` if the name doesn't already have one.
+ */
+export function getAttachmentFileName(attachment: {
+    name: string,
+    path?: string,
+    contentType: string
+}): string {
+    if (attachment.path) {
+        return path.basename(attachment.path);
+    }
+
+    if (path.extname(attachment.name)) {
+        return attachment.name;
+    }
+
+    const extension = EXTENSION_BY_CONTENT_TYPE[attachment.contentType];
+    return extension ? `${attachment.name}${extension}` : attachment.name;
+}
 
 export function getAttachmentKey(attachment: {
     name: string,
