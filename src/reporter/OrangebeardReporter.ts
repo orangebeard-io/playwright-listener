@@ -3,6 +3,7 @@ import {Reporter, TestCase, TestResult, TestStep} from '@playwright/test/reporte
 import {
     ansiToMarkdown,
     determineTestType,
+    getAttachmentFileName,
     getAttachmentKey,
     getBytes,
     getCodeSnippet,
@@ -390,7 +391,7 @@ export class OrangebeardReporter implements Reporter {
 
             const orangebeardAttachment: Attachment = {
                 file: {
-                    name: path.basename(attachment.path),
+                    name: getAttachmentFileName(attachment),
                     content: content,
                     contentType: attachment.contentType,
                 },

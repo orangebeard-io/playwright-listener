@@ -33,13 +33,16 @@
   "homepage": "https://github.com/orangebeard-io/playwright-listener#readme",
   "devDependencies": {
     "@playwright/test": "^1.57.0",
+    "@types/jest": "^30.0.0",
     "@types/node": "^22.10.9",
     "@typescript-eslint/parser": "^8.15.0",
     "eslint": "^9.15.0",
     "eslint-config-prettier": "^9.1.0",
     "eslint-plugin-prettier": "^5.2.1",
+    "jest": "^30.4.2",
     "prettier": "^3.3.3",
     "rimraf": "^6.0.1",
+    "ts-jest": "^29.4.12",
     "typescript": "^5.6.3"
   },
   "dependencies": {
