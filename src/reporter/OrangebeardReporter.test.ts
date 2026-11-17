@@ -58,7 +58,7 @@ jest.mock('@orangebeard-io/javascript-client', () => {
   };
 });
 
-// eslint-disable-next-line import/first
+// imported after jest.mock above (jest hoists the mock, this keeps the order explicit)
 import { OrangebeardReporter } from './OrangebeardReporter';
 
 describe('OrangebeardReporter attachment ordering', () => {

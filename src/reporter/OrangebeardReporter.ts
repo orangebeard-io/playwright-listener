@@ -58,7 +58,7 @@ export class OrangebeardReporter implements Reporter {
     return this.client.finishTestRun(this.testRunId, { endTime: getTime() });
   }
 
-  onStdErr(chunk: string | Buffer, test: void | TestCase, _result: void | TestResult): void {
+  onStdErr(chunk: string | Buffer, test: void | TestCase): void {
     //log error level
 
     if (typeof test === 'object' && test !== null) {
@@ -75,7 +75,7 @@ export class OrangebeardReporter implements Reporter {
     }
   }
 
-  onStdOut(chunk: string | Buffer, test: void | TestCase, _result: void | TestResult): void {
+  onStdOut(chunk: string | Buffer, test: void | TestCase): void {
     if (typeof test === 'object' && test !== null) {
       const testUUID = this.tests.get(test.id);
       const message = chunk.toString();

@@ -22,6 +22,8 @@ export const testStatusMap = {
 };
 
 export function removeAnsi(ansiString: string): string {
+  // matching the ANSI escape character (ESC, \u001b) is the point of this regex
+  // eslint-disable-next-line no-control-regex
   const parts = ansiString.split(/(\u001b\[[0-9;]*[mG])/);
   let result = '';
   for (const part of parts) {
@@ -44,6 +46,8 @@ export function ansiToMarkdown(ansiString: string): string {
     '22': { code: false },
   };
 
+  // matching the ANSI escape character (ESC, \u001b) is the point of this regex
+  // eslint-disable-next-line no-control-regex
   const parts = ansiString.split(/(\u001b\[[0-9;]*[mG])/);
 
   for (const part of parts) {
