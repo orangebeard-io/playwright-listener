@@ -12,7 +12,11 @@ jest.mock('@orangebeard-io/javascript-client', () => {
   const uuid = () => `uuid-${(counter += 1)}`;
 
   class FakeClient {
-    config = { testset: 'testset', description: undefined as string | undefined, attributes: [] as unknown[] };
+    config = {
+      testset: 'testset',
+      description: undefined as string | undefined,
+      attributes: [] as unknown[],
+    };
 
     startTestRun = jest.fn(() => uuid());
 
