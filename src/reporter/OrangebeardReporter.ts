@@ -35,6 +35,10 @@ export class OrangebeardReporter implements Reporter {
     steps: Map<string, UUID> = new Map<string, UUID>(); //testId_stepPath, uuid
     promises: Promise<void>[] = [];
     processedStepAttachments: Map<string, Set<string>> = new Map<string, Set<string>>(); // testId -> set of attachment keys already uploaded on step level
+    // test id or test id|step path -> deferred step finishes inside that test/step. A step or test
+    // is finished only after its attachments were handed to the client and the deferred finishes
+    // inside it ran, so the client never receives children after their parent was finished.
+    pendingFinishes: Map<string, Promise<void>[]> = new Map<string, Promise<void>[]>();
 
     constructor() {
         this.client = new OrangebeardAsyncV3Client();
@@ -116,7 +120,9 @@ export class OrangebeardReporter implements Reporter {
 
     onStepEnd(test: TestCase, _result: TestResult, step: TestStep): void {
         const testUUID = this.tests.get(test.id);
-        const stepUUID = this.steps.get(test.id + "|" + step.titlePath())
+        const stepKey = test.id + "|" + step.titlePath();
+        const stepUUID = this.steps.get(stepKey)
+        const attachmentUploads: Promise<void>[] = [];
 
         // Handle step-level attachments (similar to test-level attachments in onTestEnd)
         if (step.attachments && step.attachments.length > 0 && stepUUID) {
@@ -146,7 +152,9 @@ export class OrangebeardReporter implements Reporter {
                 }
                 processedForTest.add(key);
 
-                this.promises.push(this.logAttachment(attachment, testUUID, attachmentsLogUUID));
+                const upload = this.logAttachment(attachment, testUUID, attachmentsLogUUID);
+                attachmentUploads.push(upload);
+                this.promises.push(upload);
             }
         }
 
@@ -175,12 +183,19 @@ export class OrangebeardReporter implements Reporter {
             }
         }
 
-        this.client.finishStep(this.steps.get(test.id + "|" + step.titlePath()), {
+        const finishStep = {
             endTime: getTime(),
             status: step.error ? Status.FAILED : Status.PASSED,
             testRunUUID: this.testRunId
-        })
-        this.steps.delete(test.id + "|" + step.titlePath())
+        };
+        const deferred = this.finishAfter(
+            [...attachmentUploads, ...this.takePendingFinishes(stepKey)],
+            () => this.client.finishStep(stepUUID, finishStep),
+        );
+        if (deferred) {
+            this.addPendingFinish(OrangebeardReporter.enclosingScopes(test, step), deferred);
+        }
+        this.steps.delete(stepKey)
     }
 
     onTestBegin(test: TestCase, result: TestResult): void {
@@ -251,6 +266,7 @@ export class OrangebeardReporter implements Reporter {
 
     async onTestEnd(test: TestCase, result: TestResult): Promise<void> {
         const testUUID = this.tests.get(test.id);
+        const attachmentUploads: Promise<void>[] = [];
 
         // Filter out attachments that were already handled at step level to avoid duplicates.
         const processedForTest = this.processedStepAttachments.get(test.id);
@@ -272,7 +288,9 @@ export class OrangebeardReporter implements Reporter {
                 testUUID: testUUID
             })
             for (const attachment of remainingAttachments) {
-                this.promises.push(this.logAttachment(attachment, testUUID, attachmentsLogUUID));
+                const upload = this.logAttachment(attachment, testUUID, attachmentsLogUUID);
+                attachmentUploads.push(upload);
+                this.promises.push(upload);
             }
         }
 
@@ -323,12 +341,16 @@ export class OrangebeardReporter implements Reporter {
             });
         }
 
-        //finish test
-        this.client.finishTest(testUUID, {
+        //finish test, once its attachments and deferred step finishes have reached the client
+        const finishTest = {
             testRunUUID: this.testRunId,
             status: status,
             endTime: getTime()
-        });
+        };
+        this.finishAfter(
+            [...attachmentUploads, ...this.takePendingFinishes(test.id)],
+            () => this.client.finishTest(testUUID, finishTest),
+        );
         this.tests.delete(test.id);
         this.processedStepAttachments.delete(test.id);
     }
@@ -364,6 +386,44 @@ export class OrangebeardReporter implements Reporter {
             }
         }
         return parentSuiteUUID as UUID;
+    }
+
+    /**
+     * Runs `finish` right away when there is nothing to wait for; otherwise once `waitFor` has
+     * settled. A deferred finish is added to `promises` (so onEnd waits for it) and returned.
+     */
+    private finishAfter(waitFor: Promise<void>[], finish: () => void): Promise<void> | undefined {
+        if (waitFor.length === 0) {
+            finish();
+            return undefined;
+        }
+        const deferred = Promise.all(waitFor).then(finish);
+        this.promises.push(deferred);
+        return deferred;
+    }
+
+    private takePendingFinishes(scope: string): Promise<void>[] {
+        const pending = this.pendingFinishes.get(scope) ?? [];
+        this.pendingFinishes.delete(scope);
+        return pending;
+    }
+
+    private addPendingFinish(scopes: string[], finish: Promise<void>): void {
+        for (const scope of scopes) {
+            const pending = this.pendingFinishes.get(scope) ?? [];
+            pending.push(finish);
+            this.pendingFinishes.set(scope, pending);
+        }
+    }
+
+    /** The scopes a step's finish must complete in: each enclosing step, then the test. */
+    private static enclosingScopes(test: TestCase, step: TestStep): string[] {
+        const scopes: string[] = [];
+        for (let parent = step.parent; parent; parent = parent.parent) {
+            scopes.push(test.id + "|" + parent.titlePath());
+        }
+        scopes.push(test.id);
+        return scopes;
     }
 
     private getTestDescription(test: TestCase): string {
