@@ -11,12 +11,13 @@ import {
     removeAnsi,
     testStatusMap,
 } from './utils';
-import {OrangebeardParameters} from "@orangebeard-io/javascript-client/dist/client/models/OrangebeardParameters";
-import OrangebeardAsyncV3Client from "@orangebeard-io/javascript-client/dist/client/OrangebeardAsyncV3Client";
-import {Attachment} from "@orangebeard-io/javascript-client/dist/client/models/Attachment";
-import {Log} from "@orangebeard-io/javascript-client/dist/client/models/Log";
-import {Attribute} from "@orangebeard-io/javascript-client/dist/client/models/Attribute";
-import {FinishStep} from "@orangebeard-io/javascript-client/dist/client/models/FinishStep";
+import OrangebeardAsyncV3Client, {
+    Attachment,
+    Attribute,
+    FinishStep,
+    Log,
+    OrangebeardParameters,
+} from "@orangebeard-io/javascript-client";
 import LogFormat = Log.LogFormat;
 import LogLevel = Log.LogLevel;
 import Status = FinishStep.Status;

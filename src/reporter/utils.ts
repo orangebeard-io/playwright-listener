@@ -1,10 +1,9 @@
 import {ZonedDateTime} from "@js-joda/core";
-import {FinishTest} from "@orangebeard-io/javascript-client/dist/client/models/FinishTest";
+import {FinishTest, StartTest} from "@orangebeard-io/javascript-client";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import {promisify} from "util";
 import Status = FinishTest.Status;
-import { StartTest } from '@orangebeard-io/javascript-client/dist/client/models/StartTest';
 import TestType = StartTest.TestType;
 
 const stat = promisify(fs.stat);

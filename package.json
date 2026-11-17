@@ -47,6 +47,6 @@
   },
   "dependencies": {
     "@js-joda/core": "^5.6.3",
-    "@orangebeard-io/javascript-client": "^2.0.8"
+    "@orangebeard-io/javascript-client": "^2.0.11"
   }
 }
