@@ -27,6 +27,12 @@ jobs:
         run: npm install -g npm@latest
       - run: npm ci
 
+      # Gate the release: nothing is bumped, published or pushed when these fail
+      - name: Run lint
+        run: npm run lint
+      - name: Run tests
+        run: npm test
+
       - name: Bump version
         id: version_bump
         run: |
