@@ -151,6 +151,33 @@ const waitForFile = async (filepath: string, interval = 1000, timeout = 60000) =
   }
 };
 
+/**
+ * Runs at most `max` tasks at the same time; further tasks wait in FIFO order.
+ */
+export function createLimiter(max: number) {
+  let active = 0;
+  const waiting: Array<() => void> = [];
+
+  return async function run<T>(task: () => Promise<T>): Promise<T> {
+    if (active < max) {
+      active += 1;
+    } else {
+      // a finishing task hands its slot over directly, so `active` stays the same
+      await new Promise<void>((resolve) => waiting.push(resolve));
+    }
+    try {
+      return await task();
+    } finally {
+      const next = waiting.shift();
+      if (next) {
+        next();
+      } else {
+        active -= 1;
+      }
+    }
+  };
+}
+
 export const getBytes = async (filePath: string) => {
   try {
     await waitForFile(filePath, 100, 5000);

@@ -2,6 +2,7 @@ import { UUID } from 'crypto';
 import { Reporter, TestCase, TestResult, TestStep } from '@playwright/test/reporter';
 import {
   ansiToMarkdown,
+  createLimiter,
   determineTestType,
   getAttachmentFileName,
   getAttachmentKey,
@@ -24,6 +25,9 @@ import Status = FinishStep.Status;
 import * as path from 'node:path';
 
 export class OrangebeardReporter implements Reporter {
+  /** File attachments (traces, videos, ...) held in memory at once, from reading until uploaded. */
+  static readonly MAX_FILE_ATTACHMENTS_IN_MEMORY = 3;
+
   config: OrangebeardParameters;
   client: OrangebeardAsyncV3Client;
 
@@ -31,13 +35,18 @@ export class OrangebeardReporter implements Reporter {
   testRunId: UUID;
   suites: Map<string, UUID> = new Map<string, UUID>(); //suiteNames , uuid
   tests: Map<string, UUID> = new Map<string, UUID>(); //testId, uuid
-  steps: Map<string, UUID> = new Map<string, UUID>(); //testId_stepPath, uuid
+  // keyed by the step object Playwright passes to both onStepBegin and onStepEnd: titles are not
+  // unique (e.g. parallel expects with the same title), step objects are
+  steps: WeakMap<TestStep, UUID> = new WeakMap<TestStep, UUID>();
   promises: Promise<void>[] = [];
   processedStepAttachments: Map<string, Set<string>> = new Map<string, Set<string>>(); // testId -> set of attachment keys already uploaded on step level
-  // test id or test id|step path -> deferred step finishes inside that test/step. A step or test
-  // is finished only after its attachments were handed to the client and the deferred finishes
-  // inside it ran, so the client never receives children after their parent was finished.
-  pendingFinishes: Map<string, Promise<void>[]> = new Map<string, Promise<void>[]>();
+  // test id or step -> deferred step finishes inside that test/step. A step or test is finished
+  // only after its attachments were handed to the client and the deferred finishes inside it ran,
+  // so the client never receives children after their parent was finished.
+  pendingFinishes: Map<string | TestStep, Promise<void>[]> = new Map();
+  private readonly fileAttachmentSlots = createLimiter(
+    OrangebeardReporter.MAX_FILE_ATTACHMENTS_IN_MEMORY,
+  );
 
   constructor() {
     this.client = new OrangebeardAsyncV3Client();
@@ -54,7 +63,12 @@ export class OrangebeardReporter implements Reporter {
   }
 
   async onEnd(): Promise<void> {
-    await Promise.all(this.promises);
+    // a failure in pending reporting work must not keep the run from being finished
+    await Promise.all(
+      this.promises.map((promise) =>
+        promise.catch((err) => console.error('Error reporting to Orangebeard:', err)),
+      ),
+    );
     return this.client.finishTestRun(this.testRunId, { endTime: getTime() });
   }
 
@@ -102,11 +116,9 @@ export class OrangebeardReporter implements Reporter {
         : undefined,
       testRunUUID: this.testRunId,
       testUUID: testUUID,
-      parentStepUUID: step.parent
-        ? this.steps.get(test.id + '|' + step.parent.titlePath())
-        : undefined,
+      parentStepUUID: step.parent ? this.steps.get(step.parent) : undefined,
     });
-    this.steps.set(test.id + '|' + step.titlePath(), stepUUID);
+    this.steps.set(step, stepUUID);
 
     if (step.location) {
       this.client.log({
@@ -123,15 +135,14 @@ export class OrangebeardReporter implements Reporter {
 
   onStepEnd(test: TestCase, _result: TestResult, step: TestStep): void {
     const testUUID = this.tests.get(test.id);
-    const stepKey = test.id + '|' + step.titlePath();
-    const stepUUID = this.steps.get(stepKey);
+    const stepUUID = this.steps.get(step);
     const attachmentUploads: Promise<void>[] = [];
 
     // Handle step-level attachments (similar to test-level attachments in onTestEnd)
     if (step.attachments && step.attachments.length > 0 && stepUUID) {
       let message = '';
       for (const attachment of step.attachments) {
-        message += `- ${attachment.name} (${attachment.contentType})\\n`;
+        message += `- ${attachment.name} (${attachment.contentType})\n`;
       }
 
       const attachmentsLogUUID = this.client.log({
@@ -192,13 +203,13 @@ export class OrangebeardReporter implements Reporter {
       testRunUUID: this.testRunId,
     };
     const deferred = this.finishAfter(
-      [...attachmentUploads, ...this.takePendingFinishes(stepKey)],
+      [...attachmentUploads, ...this.takePendingFinishes(step)],
       () => this.client.finishStep(stepUUID, finishStep),
     );
     if (deferred) {
       this.addPendingFinish(OrangebeardReporter.enclosingScopes(test, step), deferred);
     }
-    this.steps.delete(stepKey);
+    this.steps.delete(step);
   }
 
   onTestBegin(test: TestCase, result: TestResult): void {
@@ -282,7 +293,7 @@ export class OrangebeardReporter implements Reporter {
     if (remainingAttachments.length > 0) {
       let message = '';
       for (const attachment of remainingAttachments) {
-        message += `- ${attachment.name} (${attachment.contentType})\\n`;
+        message += `- ${attachment.name} (${attachment.contentType})\n`;
       }
       const attachmentsLogUUID = this.client.log({
         logFormat: LogFormat.MARKDOWN,
@@ -401,21 +412,32 @@ export class OrangebeardReporter implements Reporter {
    */
   private finishAfter(waitFor: Promise<void>[], finish: () => void): Promise<void> | undefined {
     if (waitFor.length === 0) {
-      finish();
+      OrangebeardReporter.reportingErrorsLogged(finish);
       return undefined;
     }
-    const deferred = Promise.all(waitFor).then(finish);
+    // never rejects: a failing finish must not stop the run from being finished in onEnd
+    const deferred = Promise.all(waitFor).then(() =>
+      OrangebeardReporter.reportingErrorsLogged(finish),
+    );
     this.promises.push(deferred);
     return deferred;
   }
 
-  private takePendingFinishes(scope: string): Promise<void>[] {
+  private static reportingErrorsLogged(report: () => void): void {
+    try {
+      report();
+    } catch (err) {
+      console.error('Error reporting to Orangebeard:', err);
+    }
+  }
+
+  private takePendingFinishes(scope: string | TestStep): Promise<void>[] {
     const pending = this.pendingFinishes.get(scope) ?? [];
     this.pendingFinishes.delete(scope);
     return pending;
   }
 
-  private addPendingFinish(scopes: string[], finish: Promise<void>): void {
+  private addPendingFinish(scopes: Array<string | TestStep>, finish: Promise<void>): void {
     for (const scope of scopes) {
       const pending = this.pendingFinishes.get(scope) ?? [];
       pending.push(finish);
@@ -424,10 +446,10 @@ export class OrangebeardReporter implements Reporter {
   }
 
   /** The scopes a step's finish must complete in: each enclosing step, then the test. */
-  private static enclosingScopes(test: TestCase, step: TestStep): string[] {
-    const scopes: string[] = [];
+  private static enclosingScopes(test: TestCase, step: TestStep): Array<string | TestStep> {
+    const scopes: Array<string | TestStep> = [];
     for (let parent = step.parent; parent; parent = parent.parent) {
-      scopes.push(test.id + '|' + parent.titlePath());
+      scopes.push(parent);
     }
     scopes.push(test.id);
     return scopes;
@@ -436,7 +458,9 @@ export class OrangebeardReporter implements Reporter {
   private getTestDescription(test: TestCase): string {
     let description = `${path.basename(test.location.file)}:${test.location.line}\n`;
     for (const annotation of test.annotations) {
-      description = `${description + annotation.type}: ${annotation.description}\n`;
+      description += annotation.description
+        ? `${annotation.type}: ${annotation.description}\n`
+        : `${annotation.type}\n`;
     }
     return description;
   }
@@ -451,17 +475,8 @@ export class OrangebeardReporter implements Reporter {
     testUUID: UUID,
     logUUID: UUID,
   ) {
-    try {
-      let content: Buffer;
-      if (attachment.body) {
-        content = attachment.body;
-      } else if (attachment.path) {
-        content = await getBytes(attachment.path);
-      } else {
-        throw new Error('Attachment must have either body or path defined.');
-      }
-
-      const orangebeardAttachment: Attachment = {
+    const send = (content: Buffer): UUID =>
+      this.client.sendAttachment({
         file: {
           name: getAttachmentFileName(attachment),
           content: content,
@@ -473,8 +488,24 @@ export class OrangebeardReporter implements Reporter {
           logUUID: logUUID,
           attachmentTime: getTime(),
         },
-      };
-      await this.client.sendAttachment(orangebeardAttachment);
+      } satisfies Attachment);
+
+    try {
+      if (attachment.body) {
+        // already in memory (held by Playwright), nothing to limit
+        send(attachment.body);
+        return;
+      }
+      const filePath = attachment.path;
+      if (!filePath) {
+        throw new Error('Attachment must have either body or path defined.');
+      }
+      // Traces and videos can be large: only a few are read into memory at a time, and each one
+      // keeps its slot until the client has uploaded it, so a long run does not pile them up.
+      await this.fileAttachmentSlots(async () => {
+        const uploadUUID = send(await getBytes(filePath));
+        await this.client.promises?.[uploadUUID];
+      });
     } catch (err) {
       // Avoid failing the entire test run due to a single attachment failure.
       // Log to stderr so issues are visible during test execution.
